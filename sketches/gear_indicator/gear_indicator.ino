@@ -3,12 +3,17 @@
 * Could be used alone or with Arduino DataLogger
 * Some information about interrupts:
 * - http://arduino.cc/en/Reference/attachInterrupt
+* About SD Cards:
+* - https://learn.adafruit.com/adafruit-micro-sd-breakout-board-card-tutorial/format
 * Some useful information about Aprilia RSV/SL bikes work: (See: http://www.aprilia-v60.com/index.php?topic=262315)
 * - Speed sensor: purple/green wire=Vcc ~ 9V ? / grey/white: signal ~6.5V, falling to 0V
 * - Engine pulses/revolution: 3 if read from the dashboard wire
 * - Engine pulses/revolution: 6 if crank shaft sensor is used
 * - Wheel pulses/revolution: 5
 */
+
+#include <SPI.h>
+#include <SD.h>
 
 #define ENGINE_PULSES_PER_REVOLUTION 3
 #define WHEEL_PULSES_PER_REVOLUTION 5
@@ -24,6 +29,8 @@ float ratio;
 
 unsigned long lastmillis;
 
+File file;
+
 void setup() {
   Serial.begin(9600);
 
@@ -37,6 +44,23 @@ void setup() {
   ratio = 0;
 
   lastmillis = 0;
+  
+    Serial.print("Initializing SD card...");
+  // On the Ethernet Shield, CS is pin 4. It's set as an output by default.
+  // Note that even if it's not used as the CS pin, the hardware SS pin 
+  // (10 on most Arduino boards, 53 on the Mega) must be left as an output 
+  // or the SD library functions will not work. 
+  pinMode(10, OUTPUT);
+ 
+  if (!SD.begin(10)) {
+    Serial.println("initialization failed!");
+    return;
+  }
+  Serial.println("initialization done.");
+ 
+  // open the file. note that only one file can be open at a time,
+  // so you have to close this one before opening another.
+  file = SD.open("data.log", FILE_WRITE);
 }
 
 /**
@@ -66,6 +90,13 @@ void loop() {
   }
   
 }
+
+void writeToFile(char* data) {
+  if (file) {
+    file.println(data);
+  }
+}
+
 void rpm_counter() {
   engine_pulses++;
 }
