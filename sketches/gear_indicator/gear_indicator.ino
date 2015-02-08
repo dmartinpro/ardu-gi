@@ -1,6 +1,8 @@
 /*
 * Gear Indicator
 * Could be used alone or with Arduino DataLogger
+* Some information about interrupts:
+* - http://arduino.cc/en/Reference/attachInterrupt
 * Some useful information about Aprilia RSV/SL bikes work: (See: http://www.aprilia-v60.com/index.php?topic=262315)
 * - Speed sensor: purple/green wire=Vcc ~ 9V ? / grey/white: signal ~6.5V, falling to 0V
 * - Engine pulses/revolution: 3 if read from the dashboard wire
@@ -18,7 +20,7 @@ volatile byte wheel_pulses;
 
 unsigned int engine_rpm;
 unsigned int wheel_rpm;
-unsigned float ratio;
+float ratio;
 
 unsigned long lastmillis;
 
