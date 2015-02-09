@@ -124,13 +124,13 @@ int gear(int ratio) {
 
 void saveValues(int rpm, int wheel, int gear) {
   i2c_values[0] = rpm &0xFF;
-  i2c_values[1] = (rpm >> 8) &0xFF;  
+  i2c_values[1] = (rpm >> 8) &0xFF;
 
   i2c_values[2] = wheel &0xFF;
-  i2c_values[3] = (wheel >> 8) &0xFF;  
+  i2c_values[3] = (wheel >> 8) &0xFF;
 
   i2c_values[4] = gear &0xFF;
-  i2c_values[5] = (gear >> 8) &0xFF;  
+  i2c_values[5] = (gear >> 8) &0xFF;
 }
 
 void writeToFile(char* data) {
