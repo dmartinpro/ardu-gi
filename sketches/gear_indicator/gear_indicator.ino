@@ -4,7 +4,8 @@
 * Some information about interrupts:
 * - http://arduino.cc/en/Reference/attachInterrupt
 * About I2C:
-$ - WSWireLib: https://github.com/steamfire/WSWireLib
+* - WSWireLib: https://github.com/steamfire/WSWireLib
+* - http://stackoverflow.com/questions/21073085/how-to-send-4-pot-values-via-i2c-from-arduino-to-arduino-how-to-differentiate-t
 * About SD Cards:
 * - https://learn.adafruit.com/adafruit-micro-sd-breakout-board-card-tutorial/format
 * Some useful information about Aprilia RSV/SL bikes work: (See: http://www.aprilia-v60.com/index.php?topic=262315)
