@@ -8,7 +8,11 @@
 * - http://stackoverflow.com/questions/21073085/how-to-send-4-pot-values-via-i2c-from-arduino-to-arduino-how-to-differentiate-t
 * About SD Cards:
 * - https://learn.adafruit.com/adafruit-micro-sd-breakout-board-card-tutorial/format
-* Some useful information about Aprilia RSV/SL bikes work: (See: http://www.aprilia-v60.com/index.php?topic=262315)
+* About MPU6050:
+* - http://playground.arduino.cc/Main/MPU-6050
+* - https://github.com/jrowberg/i2cdevlib/tree/master/Arduino/MPU6050
+* - http://www.geekmomprojects.com/mpu-6050-redux-dmp-data-fusion-vs-complementary-filter/
+* Some useful information about Aprilia RSV/SL 1000 bikes work: (See: http://www.aprilia-v60.com/index.php?topic=262315)
 * - Speed sensor: purple/green wire=Vcc ~ 9V ? / grey/white: signal ~6.5V, falling to 0V
 * - Engine pulses/revolution: 3 if read from the dashboard wire
 * - Engine pulses/revolution: 6 if crank shaft sensor is used
@@ -38,8 +42,7 @@ unsigned int gear_ratio_table[6]; // ratio values for each gear
 
 unsigned long lastmillis;
 
-File file;
-
+const int chipSelect = 4;
 
 uint8_t i2c_values[6];
 
@@ -65,15 +68,11 @@ void setup() {
   // or the SD library functions will not work. 
   pinMode(10, OUTPUT);
 
-  if (!SD.begin(10)) {
-    Serial.println("initialization failed!");
+  if (!SD.begin(chipSelect)) {
+    Serial.println("Initialization failed! ");
     return;
   }
   Serial.println("initialization done.");
-
-  // open the file. note that only one file can be open at a time,
-  // so you have to close this one before opening another.
-  file = SD.open("data.log", FILE_WRITE);
 
   // I2C Slave configuration
   Wire.begin(I2C_ADDRESS);                // join i2c bus with address #4
@@ -106,7 +105,7 @@ void loop() {
     attachInterrupt(1, speed_counter, FALLING);
 
     saveValues(engine_rpm, wheel_rpm, gear(ratio));
-
+    writeToFile("test");
   }
   
 }
@@ -135,8 +134,12 @@ void saveValues(int rpm, int wheel, int gear) {
 }
 
 void writeToFile(char* data) {
+  File file = SD.open("data.log", FILE_WRITE);
   if (file) {
     file.println(data);
+    file.close();
+  } else {
+    Serial.println("Error to open/create file");
   }
 }
 
