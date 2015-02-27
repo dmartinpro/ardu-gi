@@ -7,6 +7,7 @@
 * - WSWireLib: https://github.com/steamfire/WSWireLib
 * - http://stackoverflow.com/questions/21073085/how-to-send-4-pot-values-via-i2c-from-arduino-to-arduino-how-to-differentiate-t
 * - http://www.gammon.com.au/i2c
+* - http://michael.bouvy.net/blog/en/2013/05/25/arduino-multi-master-to-master-i2c/
 * About SD Cards:
 * - https://learn.adafruit.com/adafruit-micro-sd-breakout-board-card-tutorial/format
 * About MPU6050:
@@ -14,21 +15,31 @@
 * - https://github.com/jrowberg/i2cdevlib/tree/master/Arduino/MPU6050
 * - http://www.geekmomprojects.com/mpu-6050-redux-dmp-data-fusion-vs-complementary-filter/
 * - http://42bots.com/tutorials/arduino-uno-and-the-invensense-mpu-6050-6dof-imu/
-* Some useful information about Aprilia RSV/SL 1000 bikes work: (See: http://www.aprilia-v60.com/index.php?topic=262315)
+* - Yaw Pitch Roll explained: http://www.geekmomprojects.com/wii-nunchuck-controlled-servo-motors/
+* - Calibration sketch: http://www.i2cdevlib.com/forums/topic/96-arduino-sketch-to-automatically-calculate-mpu6050-offsets/
+* - Kalman filter example: http://www.instructables.com/id/Gyro-Camera-for-Motorcycle/?ALLSTEPS
+* - Better Kalman example: https://github.com/TKJElectronics/Example-Sketch-for-IMU-including-Kalman-filter/tree/master/IMU6DOF/MPU6050
+* About optimization:
+* - https://learn.adafruit.com/memories-of-an-arduino/optimizing-sram
+* Some useful information about Aprilia RSV/SL 1000 bikes sensors: (See: http://www.aprilia-v60.com/index.php?topic=262315)
 * - Speed sensor: purple/green wire=Vcc ~ 9V ? / grey/white: signal ~6.5V, falling to 0V
 * - Engine pulses/revolution: 3 if read from the dashboard wire
 * - Engine pulses/revolution: 6 if crank shaft sensor is used
 * - Wheel pulses/revolution: 5
 */
 
-#include <SPI.h>
 #include <SD.h>
-//#include <WSWire.h>
+//#include <WSWire.h> // TODO: Test this lib instead of Wire
 #include <Wire.h>
-#include <PinChangeInt.h>
+#include <PinChangeInt.h> // "Pin change" interrupt support
 
 #include "I2Cdev.h"
 #include "MPU6050_6Axis_MotionApps20.h"
+
+#define VERBOSE 1
+
+#define I2C_ADDRESS_MASTER 0x10 // Current master I2C address
+#define I2C_ADDRESS_ME 0x11 // Current device I2C address
 
 #define OUTPUT_READABLE_YAWPITCHROLL
 
@@ -55,9 +66,9 @@ unsigned int gear_ratio_table[6]; // ratio values for each gear
 
 unsigned long lastmillis;
 
-const int chipSelect = 4;
+const byte chipSelect = 4;
 
-uint8_t i2c_values[12];
+uint8_t i2c_values[12]; // Values to send back to the I2C Master
 
 MPU6050 mpu;
 // MPU control/status vars
@@ -78,25 +89,26 @@ void dmp_data_ready() {
   mpuInterrupt = true;
 }
 
-int file_index = FIRST_FILE_INDEX;
+unsigned int file_index = FIRST_FILE_INDEX;
+const char* settings_file_name PROGMEM = "settings.ini";
 
 void setup() {
 
   // join I2C bus (I2Cdev library doesn't do this automatically)
   #if I2CDEV_IMPLEMENTATION == I2CDEV_ARDUINO_WIRE
-    Wire.begin();
+    Wire.begin(I2C_ADDRESS_ME); // Verify if it still works
     TWBR = 24; // 400kHz I2C clock (200kHz if CPU is 8MHz)
   #elif I2CDEV_IMPLEMENTATION == I2CDEV_BUILTIN_FASTWIRE
     Fastwire::setup(400, true);
   #endif
+  
   Serial.begin(115200);
   while (!Serial); // wait for Leonardo enumeration, others continue immediately
+
   // Verify MPU connection
-  Serial.println(F("Testing device connections..."));
-  Serial.println(mpu.testConnection() ? F("MPU6050 connection successful") : F("MPU6050 connection failed"));
+  serial_println(mpu.testConnection() ? "MPU6050 connection successful" : "MPU6050 connection failed");
 
   // load and configure the DMP
-  Serial.println(F("Initializing DMP..."));
   devStatus = mpu.dmpInitialize();
 
   // supply your own gyro offsets here, scaled for min sensitivity
@@ -105,23 +117,15 @@ void setup() {
   mpu.setZGyroOffset(-85);
   mpu.setZAccelOffset(1788); // 1688 factory default for my test chip
 
-  // make sure it worked (returns 0 if so)
-  if (devStatus == 0) {
-    // turn on the DMP, now that it's ready
-    Serial.println(F("Enabling DMP..."));
+  if (devStatus == 0) { // = OK
     mpu.setDMPEnabled(true);
 
-    // enable Arduino interrupt detection
-    Serial.println(F("Enabling interrupt detection (Arduino external interrupt 0)..."));
-//  attachInterrupt(0, dmpDataReady, RISING);
-//  "Pin change" interrupt instead of the two hardware interrupts, already used for engine rev & wheel rev
+    //  "Pin change" interrupt instead of the two hardware interrupts, already used for engine rev & wheel rev
     pinMode(PIN_INT, INPUT_PULLUP);
     attachPinChangeInterrupt(PIN_INT, dmp_data_ready, RISING);
 
     mpuIntStatus = mpu.getIntStatus();
 
-    // set our DMP Ready flag so the main loop() function knows it's okay to use it
-    Serial.println(F("DMP ready! Waiting for first interrupt..."));
     dmpReady = true;
 
     // get expected DMP packet size for later comparison
@@ -131,9 +135,9 @@ void setup() {
     // 1 = initial memory load failed
     // 2 = DMP configuration updates failed
     // (if it's going to break, usually the code will be 1)
-    Serial.print(F("DMP Initialization failed (code "));
-    Serial.print(devStatus);
-    Serial.println(F(")"));
+    serial_print("DMP Initialization failed (code ");
+    serial_print(devStatus);
+    serial_println(")");
   }
 
   attachInterrupt(0, rpm_counter, FALLING);
@@ -147,7 +151,6 @@ void setup() {
 
   lastmillis = 0;
 
-  Serial.print("Initializing SD card...");
   // On the Ethernet Shield, CS is pin 4. It's set as an output by default.
   // Note that even if it's not used as the CS pin, the hardware SS pin 
   // (10 on most Arduino boards, 53 on the Mega) must be left as an output 
@@ -155,23 +158,19 @@ void setup() {
   pinMode(10, OUTPUT);
 
   if (!SD.begin(chipSelect)) {
-    Serial.println("Initialization failed! ");
+    serial_println("SD initialization failed! ");
     return;
   }
-  Serial.println("initialization done.");
 
-  File settings_file = SD.open("settings.ini");
+  File settings_file = SD.open(settings_file_name);
   if (settings_file) {
     char* index_ch = readline(settings_file);
     file_index = atoi(index_ch);
-    Serial.print("Index found in file:");
-    Serial.println(file_index);
     file_index++;
-    // close the file:
     settings_file.close();
   }
-  SD.remove("settings.ini");
-  settings_file = SD.open("settings.ini", FILE_WRITE);
+  SD.remove(const_cast<char*>(settings_file_name));
+  settings_file = SD.open(settings_file_name, FILE_WRITE);
   if (settings_file) {
     settings_file.println(file_index);
     settings_file.close();
@@ -226,12 +225,12 @@ void loop() {
 
   read_mpu();
 
-  Serial.print("ypr\t");
-  Serial.print(ypr[0] * 180/M_PI);
-  Serial.print("\t");
-  Serial.print(ypr[1] * 180/M_PI);
-  Serial.print("\t");
-  Serial.println(ypr[2] * 180/M_PI);
+  serial_print("ypr\t");
+  serial_print(ypr[0] * 180/M_PI);
+  serial_print("\t");
+  serial_print(ypr[1] * 180/M_PI);
+  serial_print("\t");
+  serial_println(ypr[2] * 180/M_PI);
 
 }
 
@@ -248,7 +247,7 @@ void read_mpu() {
   if ((mpuIntStatus & 0x10) || fifoCount == 1024) {
     // reset so we can continue cleanly
     mpu.resetFIFO();
-    Serial.println(F("FIFO overflow!"));
+    serial_println("FIFO overflow!");
 
   // otherwise, check for DMP data ready interrupt (this should happen frequently)
   } else if (mpuIntStatus & 0x02) {
@@ -342,8 +341,8 @@ void write_line_to_disk(char* data) {
     file.println(data);
     file.close();
   } else {
-    Serial.print("Error to open/create file ");
-    Serial.println(file_name);
+    serial_print("Error to open/create file ");
+    serial_println(file_name);
   }
 }
 
@@ -357,4 +356,30 @@ void rpm_counter() {
 
 void speed_counter() {
   wheel_pulses++;
+}
+
+
+// SERIAL PRINT/PRINTLN
+void serial_print(const char txt[]) {
+  #if VERBOSE
+  Serial.print(txt);
+  #endif
+}
+
+void serial_print(const uint8_t v) {
+  #if VERBOSE
+  Serial.print(v);
+  #endif
+}
+
+void serial_println(unsigned int v) {
+  #if VERBOSE
+  Serial.println(v);
+  #endif
+}
+
+void serial_println(const char txt[]) {
+  #if VERBOSE
+  Serial.println(txt);
+  #endif
 }
